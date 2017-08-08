@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<title>Cindy JS Example</title>
+<!--Adapted from http://science-to-touch.com/CJS/CindyJS/complexFunctions/04_Explorer.html -->
+<meta charset="UTF-8">
+  <!--<script type="text/javascript" src="https://cindyjs.org/dist/latest/Cindy.js"></script>-->
+  <!--<script type="text/javascript" src="https://cindyjs.org/dist/latest/CindyGL.js"></script>-->
+  <script type="text/javascript" src="./deploy/Cindy.js"></script>
+  <script type="text/javascript" src="./deploy/CindyGL.js"></script>
+
+  <script type="text/javascript" async
+          src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML">
+  </script>
+
+  <script type="text/x-mathjax-config">
+  MathJax.Hub.Config({tex2jax: {inlineMath: [['$','$'], ['\\(','\\)']]}});
+</script>
+
+<script id="csinit" type="text/x-cindyscript">
+f(z) := z^2;
+
+grid1=true;
+grid2=true;
+linear=false;
+bw=false;
+sat = 1;
+grid = 10;
+speed = 0;
+t0 = seconds();
+dragging = false;
+hasDragged = false;
+pathClosed = false;
+nrZerosF = 0;
+zoomMin = 0.1;
+zoomMax = 50;
+zoom = 1;
+// The following will be changed.
+lastPF = (0, 0);
+
+// Parameters for curve drawing.
+// Minimum time between curve sampling.
+deltaT = 0.01;
+// Minimum distance between curve sampling points.
+deltaD = 0.05;
+// Maximum distance between P and T for a closed path.
+deltaP = 0.15;
+// Check if P has left the neighbourhood of T. If not, don't regard that as a path.
+pLeftT = false;
+nextT = seconds();
+lastPCurve = T;
+nextT2 = seconds();
+lastP2Curve = T2;
+
+/*
+ * Based on: S. Kranich, "Continuity in dynamic geometry: An algorithmic approach," PhD thesis, München, Technische Universität München, Diss., 2016, 2016. p. 90.
+ */
+color (z) := ( //what color should be given to a complex number z?
+  regional(n, grey1, grey2);
+  n = 12;
+  z = log(z)/2/pi;
+
+  zfract = n*z - floor(n*z); //value of n*z in C mod Z[i]
+
+  grey1 = im(zfract);
+  grey2 = re(zfract);
+
+  hue(im(z))*(.7+.3*re(sqrt(grey1*grey2)));
+);
+
+// Corners of the canvas. Need to be adapted to visibleRect in the CindyJS initialization.
+canvasL = (0, 0);
+canvasU = (10.5, 5.5);
+uiPanel = (canvasL.x + 0.1, canvasU.y - 0.2);
+rowHeight = 0.5;
+textAbovePoint = (0, 0.25);
+
+// Corners of the colorplots.
+plotSize = (5, 5);
+plotL = canvasL;
+plotU = plotL + plotSize;
+plot2XOffset = 5.5;
+plot2L = plotL + (plot2XOffset, 0);
+plot2U = plot2L + plotSize;
+
+// Zoom slider.
+Z1.xy = (plot2L.x + 0.1, plot2U.y - 0.5);
+Z2.xy = (plot2U.x - 0.1, plot2U.y - 0.5);
+Z.y = Z1.y;
+// Move Z in order to fit the initial zoom.
+Z.x = Z1.x + (zoom - zoomMin) / (zoomMax - zoomMin) * (Z2.x - Z1.x);
+
+// Transform colorplot range to plotting range.
+plotRangeL = (-1, -1);
+plotRangeU = (1, 1);
+
+/*
+ * Transforms P from the range (PL, PU) to the range (plotRangeL, plotRangeU).
+ */
+transformPoint (P, PL, PU) := (
+  transformFromTo(P, PL, PU, plotRangeL, plotRangeU);
+);
+
+/*
+ * Transforms P from the range (PL1, PU1) to the range (PL2, PU2).
+ */
+transformFromTo (P, PL1, PU1, PL2, PU2) := (
+  (
+    PL2.x + (P.x - PL1.x) / (PU1.x - PL1.x) * (PU2.x - PL2.x),
+    PL2.y + (P.y - PL1.y) / (PU1.y - PL1.y) * (PU2.y - PL2.y)
+  )
+);
+
+// Copy point by value :-/
+clone (p) := (
+  regional(tmpX, tmpY);
+  tmpX = p.x;
+  tmpY = p.y;
+  (tmpX, tmpY);
+);
+
+/*
+ * Set Ps and Ts invisible.
+ * Delete the curves.
+ */
+resetPs () := (
+  P.alpha = 0;
+  T.alpha = 0;
+  P2.alpha = 0;
+  T2.alpha = 0;
+  pathClosed = false;
+  segments = [];
+  segments2 = [];
+);
+
+resetPs();
+
+pointFromComplex(z) := (
+  (re(z), im(z))
+);
+
+/*
+ * Returns whether the point P lies in the range (PL, PU) or not.
+ */
+pointOnPlot(P, PL, PU) := (
+  P.x >= PL.x & P.y >= PL.y & P.x <= PU.x & P.y <= PU.y
+);
+
+/*
+ * Compute the total range of argument which the points on path 1 run through by measuring the argument of the current value of f(P) and subtracting the argument of f(P) form the last frame, i.e. f(lastP).
+ */
+computeArg() := (
+    if (!hasDragged,
+      // First dragging frame.
+      lastPF = clone(P);
+      nrZerosF = 0;
+    );
+    // Avoid marking the same point several times.
+    if (lastPF.x != P.x % lastPF.y != P.y,
+      lastArg = if (!hasDragged, 0, arctan2(f(complex(transformPoint(lastPF, plotL, plotU)))));
+      crtArg = arctan2(f(complex(transformPoint(P, plotL, plotU))));
+      if (lastArg < 0, lastArg = 360° + lastArg);
+      if (crtArg < 0, crtArg = 360° + crtArg);
+      // Handle Situations where crtArg = 1°, lastArg = 359° or vice-versa by checking in which quadrants P and lastP lie.
+      dArg = crtArg - lastArg + if (sin(crtArg) > 0 & cos(crtArg) > 0 & sin(lastArg) < 0 & cos(lastArg) > 0, 360°, if(sin(crtArg) < 0 & cos(crtArg) > 0 & sin(lastArg) > 0 & cos(lastArg) > 0, -360°, 0°));
+      lastPF = clone(P);
+      if (!hasDragged, (
+        // This is the first frame after the dragging started.
+        nrZerosF = 0;
+      ), (
+      ) );
+      nrZerosF = nrZerosF + dArg;
+    );
+);
+
+pathClosed (P, T) := (
+  // First frame after dragging.
+  if (!dragging & hasDragged, (
+    if (pLeftT & |P - T| <= deltaP, (
+      pathClosed = true;
+      tmp = clone(T);
+      P.x = tmp.x;
+      P.y = tmp.y;
+      tmp = clone(T2);
+      P2.x = tmp.x;
+      P2.y = tmp.y;
+      pLeftT = false;
+      curve1(true);
+      curve2(true);
+    ), (
+      // Curve is not closed. Reset.
+      resetPs();
+    ) );
+    hasDragged = false;
+  ) );
+);
+
+/*
+ * Color a curve from T following P.
+ */
+curve1 (force) := (
+  regional(now);
+  now = seconds();
+  if (force % (now >= nextT & |lastPCurve - P| >= deltaD),
+    nextT = now + deltaT;
+    segments = append(segments, [clone(lastPCurve), clone(P)]);
+    lastPCurve = clone(P);
+  );
+  drawall(segments, color->[0,0,0], size->4);
+);
+
+/*
+ * Color a curve from T2 following P2.
+ */
+curve2 (force) := (
+  regional(now);
+  now = seconds();
+  // Careful: compare distance between P and lastP to preserve zoom invariance.
+  if (force % (now >= nextT2 & |lastPCurve - P| >= deltaD),
+    nextT2 = now + deltaT;
+    segments2 = append(segments2, [clone(lastP2Curve), clone(P2)]);
+    lastP2Curve = clone(P2);
+  );
+  drawall(segments2, color->[0,0,0], size->4);
+);
+
+</script>
+
+<script id="csmousedown" type="text/x-cindyscript">
+  if (pointOnPlot(mouse().xy, plotL, plotU), (
+    if (!dragging,
+      resetPs();
+      T.alpha = 1;
+      P.alpha = 1;
+      T2.alpha = 1;
+      P2.alpha = 1;
+      T.xy = mouse().xy;
+      dragging = true);
+      P.xy = mouse().xy;
+  ), );
+</script>
+
+<script id="csmouseup" type="text/x-cindyscript">
+  dragging = false;
+</script>
+
+<script id="csdraw" type="text/x-cindyscript">
+time = t0-seconds();
+
+Z.y = Z1.y;
+if (Z.x < Z1.x, Z.x = Z1.x);
+if (Z.x > Z2.x, Z.x = Z2.x);
+newZoom = zoomMin + (Z.x - Z1.x) / (Z2.x - Z1.x) * (zoomMax - zoomMin);
+
+/*
+ * Handle zoom.
+ * Every segment on plot 2 needs to be transformed from the old zoom to the new zoom.
+ */
+if (newZoom != zoom,
+  repeat(length(segments2), ct,
+    repeat(length(segments2_ct),
+      tmp = transformPoint(segments2_ct_#, plot2L, plot2U) * zoom / newZoom;
+      tmp = transformFromTo(tmp, plotRangeL, plotRangeU, plot2L, plot2U);
+      segments2_ct_#_1 = tmp_1;
+      segments2_ct_#_2 = tmp_2;
+    );
+  );
+  zoom = newZoom;
+);
+
+if (dragging,
+  /*
+   * Fix P inside plot 1.
+   */
+  if (P.x > plotU.x, P.x = plotU.x);
+  if (P.y > plotU.y, P.y = plotU.y);
+  if (P.x < plotL.x, P.x = plotL.x);
+  if (P.y < plotL.y, P.y = plotL.y);
+);
+
+// Calculate the positions of P2, T2 as P2 = f(P), T2 = f(T) on plot 2.
+// Always for simplicity. Even if they are outside the canvas.
+P2.xy = transformFromTo(pointFromComplex(f(complex(transformPoint(P, plotL, plotU)))) / zoom, plotRangeL, plotRangeU, plot2L, plot2U);
+T2.xy = transformFromTo(pointFromComplex(f(complex(transformPoint(T, plotL, plotU)))) / zoom, plotRangeL, plotRangeU, plot2L, plot2U);
+
+if (dragging,
+  /*
+   * Visual hint that the current path will be closed on mouse up.
+   */
+  if (|P - T| > deltaP, pLeftT = true);
+  if (pLeftT & |P - T| <= deltaP, T.size = 10, T.size = 4);
+  /*
+   * Hide P2 & T2 if they are outside plot 2.
+   */
+  P2.alpha = if (pointOnPlot(P2, plot2L, plot2U), 1, 0);
+  T2.alpha = if (pointOnPlot(T2, plot2L, plot2U), 1, 0);
+
+  computeArg();
+, (
+  T.size = 4
+) );
+
+pathClosed(P, T);
+
+if (dragging, hasDragged = true;);
+
+/*
+ * Right hand side plot.
+ */
+colorplot(
+  regional(coords);
+  coords = zoom * transformPoint(#, plot2L, plot2U);
+  color(complex(coords));
+  ,
+  plot2L, plot2U
+);
+
+if (dragging,
+  curve2(false);
+,
+  nextT2 = seconds();
+  lastP2Curve = T2;
+  if (pathClosed,
+    drawall(segments2, color->[0,0,0], size->4);
+  );
+);
+
+drawText(Z1 + textAbovePoint, "Zoom: " + zoom);
+
+/*
+ * Cover everything outside plot 2 white to hide whatever of the curve reaches outside.
+ */
+colorplot(
+  [1, 1, 1];
+  ,
+  canvasL, (plot2L.x, canvasU.y)
+);
+
+colorplot(
+  [1, 1, 1];
+  ,
+  (plot2L.x, plot2U.y), canvasU
+);
+
+
+/*
+ * Show the number of zeros inside curve 1.
+ */
+rowIndex = 0;
+drawtext(uiPanel + rowIndex * (0, rowHeight),
+  if (pathClosed,
+  "Difference between zeros and poles of f inside the curve (or its negative for a clockwise path): " + round(nrZerosF / (2*pi))
+  ,
+  "Waiting for you to drag a closed path."
+  );
+);
+rowIndex = rowIndex + 1;
+
+
+colorplot(
+  regional(coords);
+  coords = transformPoint(#, plotL, plotU);
+  color(f(complex(coords)));
+  ,
+  plotL, plotU
+);
+
+if (dragging,
+  curve1(false);
+,
+  nextT = seconds();
+  lastPCurve = T;
+  if (pathClosed,
+    drawall(segments, color->[0,0,0], size->4);
+  );
+);
+
+</script>
+<script type="text/javascript">
+
+var cdy = CindyJS({
+  ports: [{
+    id: "CSCanvas",
+      width: 1050,
+      height: 550,
+      transform: [ { visibleRect: [0, 0, 10.5, 5.5] } ]
+  }],
+  scripts: "cs*",
+  geometry: [
+    // Zoom.
+    {name:"Z1", type:"Free", pos:[-.8,.3],color:[0,0,0],pinned:true,size:2},
+    {name:"Z2", type:"Free", pos:[.8,.3],color:[0,0,0],pinned:true,size:2},
+    {name:"Zl", type:"Segment", args:["Z1","Z2"],color:[0,0,0],pinned:false,size:2},
+    {name:"Z", type:"Free", pos:[0,.3],color:[1,1,1],pinned:false,size:4},
+
+//          Ideally, points should be pinned.
+//          Ps & Ts are not visible until dragging.
+    {name:"T", type:"Free", pos:[1.2,-2],color:[0,1,1],pinned:false,size:4},
+    {name:"P", type:"Free", pos:[1.2,-2],color:[1,0,0],pinned:false,size:4},
+    {name:"T2", type:"Free", pos:[1.2,-2],color:[0,1,1],pinned:false,size:4},
+    {name:"P2", type:"Free", pos:[1.2,-2],color:[1,0,0],pinned:false,size:4}
+  ],
+  animation: {autoplay: true},
+  use: ["CindyGL", "katex"]
+});
+</script>
+</head>
+
+<body style="font-family:Arial;">
+
+<!--sources:-->
+<!--http://mathworld.wolfram.com/ArgumentPrinciple.html-->
+<!--E. Wegert, Visual complex functions. an introduction with phase portraits. Birkhäuser Basel, 2012. p. 101f.-->
+  <div style="width: 1050px; padding-bottom: 40px; font-size: large;"><a href="http://mathworld.wolfram.com/ArgumentPrinciple.html"><strong>The Argument Principle</strong></a> implies that the difference between the number of roots and the number of poles of a function inside a contour can be determined from the argument of the points on the contour. Drag a <strong>counterclockwise contour</strong> on the function $f$ (left hand side plot).</div>
+  <div id="CSCanvas" style="border:2px solid black"></div>
+<div style="width: 1050px;">
+  <table>
+    <tbody>
+    <tr>
+      <td width="50%">
+        Left side: plot of the function $f(z)$. Click on the plot to drag a curve.<br>
+        $f(z) = $<input type="text" id="inp_f" value="z^2"  onkeypress="if((event.which ? event.which : event.keyCode)==13) { cdy.evokeCS('f(z) := (' + this.value + '); resetPs();'); }">
+      </td>
+      <td>
+        Right side: If you drag a counterclockwise path $\gamma$ on $f$, the image $f \circ \gamma$ will be drawn on the identity function. Its winding around $0$ is equal to the difference between zeros and poles of $f$ inside $\gamma$<br>
+      </td>
+    </tr>
+    </tbody>
+  </table>
+</div>
+</body>
+
+</html>

@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<title>Cindy JS Example</title>
+<!--Adapted from http://science-to-touch.com/CJS/CindyJS/complexFunctions/04_Explorer.html -->
+<meta charset="UTF-8">
+  <!--<script type="text/javascript" src="https://cindyjs.org/dist/latest/Cindy.js"></script>-->
+  <!--<script type="text/javascript" src="https://cindyjs.org/dist/latest/CindyGL.js"></script>-->
+  <script type="text/javascript" src="./deploy/Cindy.js"></script>
+  <script type="text/javascript" src="./deploy/CindyGL.js"></script>
+
+  <script type="text/javascript" async
+          src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.1/MathJax.js?config=TeX-AMS-MML_HTMLorMML">
+  </script>
+
+  <script type="text/x-mathjax-config">
+  MathJax.Hub.Config({tex2jax: {inlineMath: [['$','$'], ['\\(','\\)']]}});
+</script>
+
+<script id="csinit" type="text/x-cindyscript">
+grid1=true;
+grid2=true;
+linear=false;
+bw=false;
+sat = 1;
+grid = 10;
+speed = 0;
+t0 = seconds();
+
+z0 = 0;
+oldZ0 = z0;
+deg = 4;
+oldDeg = deg;
+degMin = 0;
+degMax = 22;
+zoom = 2;
+zoomMin = 0.1;
+zoomMax = 20;
+gUseZoom = true;
+aCoeff = [];
+taylor = false;
+
+g (z) := (
+  exp(z);
+);
+
+/*
+ * Canvas setup.
+ */
+canvasL = (0,0);
+canvasU = (10.5, 6);
+plot1L = (0, 0.5);
+plot1U = (5, 5.5);
+plot2L = (5.5, 0.5);
+plot2U = (10.5, 5.5);
+plotRangeL = (-2, -2);
+plotRangeU = (2, 2);
+
+/*
+ * Slider controls.
+ */
+lineHeight = (0, 0.5);
+leftMargin = (0.1, 0);
+
+topText = ((canvasL.x, canvasU.y) - lineHeight / 2 + leftMargin);
+botText = (canvasL + lineHeight / 2 + leftMargin);
+
+sliderL = (1.5, botText.y);
+sliderU = (plot1U.x - leftMargin.x, topText.y);
+topPoints = [D1, D2];
+botPoints = [Z1, Z2];
+
+forall(topPoints, #.y = sliderU.y);
+forall(botPoints, #.y = sliderL.y);
+
+leftPoints = [D1, Z1];
+rightPoints = [D2, Z2];
+
+forall(leftPoints, #.x = sliderL.x);
+forall(rightPoints, #.x = sliderU.x);
+
+rightText = (plot2L.x, topText.y) + leftMargin;
+
+D.x = D1.x + (deg - degMin) / (degMax - degMin) * (D2.x - D1.x);
+Z.x = Z1.x + (zoom - zoomMin) / (zoomMax - zoomMin) * (Z2.x - Z1.x);
+
+/*
+ * Transforms P from the range (PL1, PU1) to the range (PL2, PU2).
+ */
+transformFromTo (P, PL1, PU1, PL2, PU2) := (
+  (
+    PL2.x + (P.x - PL1.x) / (PU1.x - PL1.x) * (PU2.x - PL2.x),
+    PL2.y + (P.y - PL1.y) / (PU1.y - PL1.y) * (PU2.y - PL2.y)
+  )
+);
+
+/*
+ * Complex values for points above plot 1.
+ */
+getPlot1 (P) := (
+  transformFromTo(P, plot1L, plot1U, plotRangeL, plotRangeU);
+);
+
+/*
+ * Complex values for points above plot 2.
+ */
+getPlot2 (P) := (
+  transformFromTo(P, plot2L, plot2U, plotRangeL, plotRangeU);
+);
+
+/*
+ * Begin: Helper functions.
+ */
+
+fac (n) := (
+  if (n == 0, 1, n * fac(n-1));
+);
+
+/*
+ * Lanczos approximation of the Gamma function.
+ * https://en.wikipedia.org/wiki/Lanczos_approximation
+ * Recursion not possible in colorplot.
+ */
+gammaHelper (z) := (
+ regional(p, EPS, x, t, y);
+  p = [676.5203681218851
+    ,-1259.1392167224028
+    ,771.32342877765313
+    ,-176.61502916214059
+    ,12.507343278686905
+    ,-0.13857109526572012
+    ,9.9843695780195716e-6
+    ,1.5056327351493116e-7
+    ];
+  EPS = 1e-07;
+  if (re(z) < 0.5,
+    // Never get here.
+    0
+    , // Reflection formula
+    z = z - 1;
+    x = 0.99999999999980993 + p_1 / (z + 1) + p_2 / (z + 2) + p_3 / (z + 3) + p_4 / (z + 4) + p_5 / (z + 5) + p_6 / (z + 6) + p_7 / (z + 7) + p_8 / (z + 8);
+    t = z + 7.5;
+    y = sqrt(2*pi) * t^(z+0.5)*exp(-t)*x;
+    if(|im(y)| <= EPS, re(y), y);
+  );
+);
+
+/*
+ * Lanczos approximation of the Gamma function.
+ * https://en.wikipedia.org/wiki/Lanczos_approximation
+ */
+gamma (z) := (
+ regional(p, EPS, x, t, y);
+  p = [676.5203681218851
+    ,-1259.1392167224028
+    ,771.32342877765313
+    ,-176.61502916214059
+    ,12.507343278686905
+    ,-0.13857109526572012
+    ,9.9843695780195716e-6
+    ,1.5056327351493116e-7
+    ];
+  EPS = 1e-07;
+  if (re(z) < 0.5,
+    pi / (sin(pi*z) * gammaHelper(1-z));
+    , // Reflection formula
+    z = z - 1;
+    x = 0.99999999999980993 + p_1 / (z + 1) + p_2 / (z + 2) + p_3 / (z + 3) + p_4 / (z + 4) + p_5 / (z + 5) + p_6 / (z + 6) + p_7 / (z + 7) + p_8 / (z + 8);
+    t = z + 7.5;
+    y = sqrt(2*pi) * t^(z+0.5)*exp(-t)*x;
+    if(|im(y)| <= EPS, re(y), y);
+  );
+);
+
+/*
+ * Binomial coefficient for complex numbers using the gamma function.
+ * http://mathworld.wolfram.com/BinomialCoefficient.html
+ */
+bin (n, k) := (
+  gamma(n + 1)/(gamma(k + 1) * gamma(n - k + 1));
+);
+
+odd (n) := (
+  mod(n,2)
+);
+
+even (n) := 1 - odd(n);
+
+g(z) := exp(z-z0); //default-value (required for autodiff)
+/*
+ * nth derivative of g at x.
+ * adapted from: https://github.com/CindyJS/CindyJS/blob/master/examples/cindygl/42_taylor.html
+ */
+dg (n, x) := (
+  if (n <= 0, g(x), autodiff(g(z), [x], n)_1_(n+1))
+);
+
+/*
+ * Hard coded first 23 bernoulli numbers.
+ * from: http://mathworld.wolfram.com/BernoulliNumber.html
+ */
+bernoulli = [-1/2, 1/6, 0, -1/30, 0, 1/42, 0, -1/30, 0, 5/66, 0, -691/2730, 0, 7/6, 0, -3617/510, 0, 43867/798, 0, -174611/330, 0, 854513/138, 0];
+
+bern (n) := (
+  if(n == 0, 1, bernoulli_n);
+);
+
+/*
+ * End: Helper functions.
+ */
+aAtN (n) := 0;
+
+a (n) := aCoeff_(n+1);
+
+computeCoeff () := (
+  aCoeff = 0..deg;
+  forall(0..deg, (
+    aCoeff_(#+1) = aAtN(#);
+  ) );
+  aCoeff = reverse(aCoeff);
+);
+
+computeCoeff();
+
+f (z) := (
+  /*
+   * Horner's scheme.
+   * Source: A. Newbery, "Error analysis for polynomial evaluation," Mathematics of computation, vol. 28, no. 127, pp. 789-793, 1974.
+   */
+  regional(r);
+  r = 0;
+  apply(aCoeff, r = (r + #) * (z-z0));
+  r = r / (z-z0);
+  r;
+);
+
+/*
+ * Adapted from: S. Kranich, "Continuity in dynamic geometry: An algorithmic approach," PhD thesis, München, Technische Universität München, Diss., 2016, 2016. p. 90.
+ */
+color (z) := ( //what color should be given to a complex number z?
+  regional(n, grey1, grey2);
+  n = 12;
+  z = log(z)/2/pi;
+  zfract = n*z - floor(n*z); //value of n*z in C mod Z[i]
+  grey1 = im(zfract);
+  grey2 = re(zfract);
+  hue(im(z))*(.7+.3*re(sqrt(grey1*grey2)));
+);
+
+/*
+ * Reverse settings for taylor series.
+ */
+init () := (
+  regional(offset);
+  // Some functions behave badly on expansion around z0 = 0.
+  offset = (1e-2, 1e-2);
+  O.xy = transformFromTo((0, 0) + offset, plotRangeL, plotRangeU, plot1L, plot1U);
+  O.alpha = 0;
+  O.pinned = true;
+  javascript("setNonTaylor()");
+  taylor = false;
+);
+
+/*
+ * Turn f into a taylor series of the current g.
+ */
+turnToTaylor () := (
+  O.alpha = 1;
+  O.pinned = false;
+  computeCoeff();
+  taylor = true;
+);
+
+// IMPORTANT: initialize. Otherwise z0 produces complications.
+init();
+
+</script>
+<script id="csdraw" type="text/x-cindyscript">
+time = t0-seconds();
+
+// Prevent O from travelling outside plot 1.
+if (O.x < plot1L.x, O.x = plot1L.x);
+if (O.y < plot1L.y, O.y = plot1L.y);
+if (O.x > plot1U.x, O.x = plot1U.x);
+if (O.y > plot1U.y, O.y = plot1U.y);
+
+// Detect changes of z0.
+z0 = complex(getPlot1(O)) * zoom;
+if(oldZ0 != z0, oldZ0 = z0; computeCoeff(););
+
+// Degree slider.
+D.y = D1.y;
+if (D.x < D1.x, D.x = D1.x);
+if (D.x > D2.x, D.x = D2.x);
+deg = round(degMin + (D.x - D1.x) / (D2.x - D1.x) * (degMax - degMin));
+if(deg != oldDeg, oldDeg = deg; computeCoeff(););
+D.x = (deg - degMin) / (degMax - degMin) * (D2.x - D1.x) + D1.x;
+
+// Zoom slider.
+Z.y = Z1.y;
+if (Z.x < Z1.x, Z.x = Z1.x);
+if (Z.x > Z2.x, Z.x = Z2.x);
+zoom = zoomMin + (Z.x - Z1.x) / (Z2.x - Z1.x) * (zoomMax - zoomMin);
+
+drawtext(topText, "Degree: " + deg);
+drawtext(botText, "Zoom: " + zoom);
+
+if (taylor, drawtext(rightText, "Taylor series around $z0 =$ " + z0));
+
+colorplot(
+  regional(z);
+  z = complex(getPlot1(#));
+  fval = f(z*zoom);
+  color(fval),
+  plot1L, plot1U
+);
+
+if (taylor, drawtext(O.xy + (0.05, 0.05), "$z_0$", color -> [1, 1, 1]));
+
+colorplot(
+  regional(z);
+  z = complex(getPlot2(#));
+  color(g(z*if(gUseZoom, zoom, 1))),
+  plot2L, plot2U
+);
+
+</script>
+<script type="text/javascript">
+
+var cdy = CindyJS({
+  ports: [{
+    id: "CSCanvas",
+      width: 1050,
+      height: 600,
+      transform: [ { visibleRect: [0, 0, 10.5, 6] } ]
+  }],
+  scripts: "cs*",
+  geometry: [
+    {name:"D1", type:"Free", pos:[1.2,.5],color:[0,0,0],pinned:true,size:2},
+    {name:"D2", type:"Free", pos:[2,.5],color:[0,0,0],pinned:true,size:2},
+    {name:"D", type:"Free", pos:[1.3,.5],color:[1,1,1],pinned:false,size:4},
+    {name:"Dl", type:"Segment", args:["D1","D2"],color:[0,0,0],pinned:false,size:2},
+    {name:"Z1", type:"Free", pos:[1.2,.2],color:[0,0,0],pinned:true,size:2},
+    {name:"Z2", type:"Free", pos:[2,.2],color:[0,0,0],pinned:true,size:2},
+    {name:"Z", type:"Free", pos:[1.3,.2],color:[1,1,1],pinned:false,size:4},
+    {name:"Zl", type:"Segment", args:["Z1","Z2"],color:[0,0,0],pinned:false,size:2},
+    {name:"O", type:"Free", pos:[0,0],color:[1,0,0],pinned:false,size:4},
+
+    {name:"TMP1", type:"Free", color:[1,0,0]},
+    {name:"TMP2", type:"Free", color:[1,0,0]},
+    {name:"TMP3", type:"Free", color:[1,0,0]},
+    {name:"TMP4", type:"Free", color:[1,0,0]},
+    {name:"TMP5", type:"Free", color:[1,0,0]},
+    {name:"TMP6", type:"Free", color:[1,0,0]},
+    {name:"TMP7", type:"Free", color:[1,0,0]},
+    {name:"TMP8", type:"Free", color:[1,0,0]},
+    {name:"TMP9", type:"Free", color:[1,1,1]},
+    {name:"TMP10", type:"Free", color:[1,1,1]},
+  ],
+  animation: {autoplay: true},
+  use: ["CindyGL", "katex"]
+});
+
+var delimiter = '#';
+var anTaylor = 'dg(n,z0)/fac(n)';
+
+var setTaylor = function () {
+  updateVals({aAtN: anTaylor});
+  cdy.evokeCS('turnToTaylor()');
+  document.getElementById('span_f').style.display = 'none';
+  document.getElementById('span_f_taylor').style.display = 'inline';
+};
+
+var setNonTaylor = function () {
+  document.getElementById('span_f_taylor').style.display = 'none';
+  document.getElementById('span_f').style.display = 'inline';
+};
+
+/*
+ * Alter aAtN and/or g.
+ * Leave unchanged whichever is not present in the parameter object.
+ */
+var updateVals = function (p) {
+  var aAtN = p.aAtN || document.getElementById('inp_aAtN').value;
+  var g = p.g || document.getElementById('inp_g').value;
+  updateInputs(aAtN + delimiter + g);
+};
+
+  var updateInputs = function (value, reset) {
+    var vs = value.split(delimiter);
+    var aAtN = vs[0];
+    var g = vs[1];
+    document.getElementById('inp_aAtN').value = aAtN;
+    document.getElementById('span_aAtN').innerText = aAtN;
+    document.getElementById('inp_g').value = g;
+    document.getElementById('span_g').innerText = g;
+    cdy.evokeCS('aAtN(n) := (' + aAtN + '); g(z) := (' + g + '); computeCoeff();' + (reset ? ' init();' : ''));
+  };
+
+  var setValue = function (index, aAtN, g) {
+    var dropDown = document.getElementById('sel');
+    dropDown[index].value = aAtN + delimiter + g;
+  }
+
+  var init = function () {
+    setValue(0, 1, '1/(1-(z))');
+    setValue(1, 'if (n != 0, (-1)^(n + 1) / n, 0)', 'log(z + 1)');
+    setValue(2, '1/fac(n)', 'exp(z)');
+    setValue(3, 'odd(n) * (-1)^floor(n/2)/fac(n)', 'sin(z)');
+    setValue(4, 'even(n) * (-1)^floor(n/2)/fac(n)', 'cos(z)');
+    setValue(5, '1/fac(n+1)', '(exp(z) - 1)/(z)');
+    setValue(6, 'bern(n)/fac(n)', '(z)/(exp(z) - 1)');
+    setValue(7, 'odd(n) * (-1)^((n+1)/2 + 1) * bern(n+1) / fac(n+1) * 4^((n+1)/2) * (4^((n+1)/2) - 1)', 'sin(z)/cos(z)');
+    setValue(8, 'even(n) * (-1)^(n/2) * bern(n) * 4^(n/2)/fac(n)', 'z * cos(z)/sin(z)');
+    document.getElementById('sp_delimiter').innerText = delimiter;
+    // Hide details on load.
+    toggleDetails();
+    // Set first displayed functions.
+    updateVals({aAtN: '1/fac(n)', g: 'exp(z)'});
+  }
+
+
+  function toggleDetails() {
+    var x = document.getElementById('explanation');
+    var b = document.getElementById('btn_explanation');
+    if (x.style.display === 'none') {
+      x.style.display = 'block';
+      b.innerText = 'Hide details';
+    } else {
+      x.style.display = 'none';
+      b.innerText = 'Show details';
+    }
+  }
+
+  window.onload = function () {
+          init();
+};
+</script>
+
+  <style>
+    .content {
+      width: 1050px;
+    }
+
+    .fullwidth {
+      width: 100%;
+    }
+
+    .left {
+      width: 50%;
+      padding-right: 25px;
+    }
+
+    .right {
+      width: 50%;
+      padding-left: 25px;
+    }
+
+    .large_text {
+      font-size: large;
+    }
+
+  </style>
+</head>
+
+<body style="font-family:Arial;">
+
+<!--above the canvas-->
+  <div class="content large_text">
+    <table class="fullwidth">
+      <tbody>
+      <tr>
+        <!--Examples and explanations inspired from: http://www.springer.com/gp/book/9783034801799, p. 72f.-->
+        <td colspan="2">
+          We want to visualize the the power series $f$ and compare it to the function $g$.
+          Choose an example: <select id="sel" onchange="updateInputs(this.value, true);">
+            <option>Geometric series</option>
+            <option>Natural logarithm of z + 1</option>
+            <option selected>Exponential function</option>
+            <option>Sine</option>
+            <option>Cosine</option>
+            <option>(e^z - 1) / z</option>
+            <option>Bernoulli Numbers</option>
+            <option>Tangent</option>
+            <option>z * cot(z)</option>
+          </select>
+        </td>
+      </tr>
+      <tr>
+        <td class="left">
+          <span id="span_f">$f(z) = \sum_{n = 0}^{deg} a_n \cdot (z)^n$</span>
+          <span id="span_f_taylor">$f(z) = \sum_{n = 0}^{deg} a_n \cdot (z - z_0)^n$</span>
+          <br>
+          $a_n = $ <span id="span_aAtN"></span>
+          <br>
+        </td>
+        <td class="right">
+          $g(z) = $<span id="span_g"></span>
+        </td>
+      </tr>
+      </tbody>
+    </table>
+  </div>
+<!--canvas-->
+  <div id="CSCanvas" class="content" style="border:2px solid black;"></div>
+<!--below the canvas-->
+  <div class="content">
+    <table style="width: 100%;">
+      <tbody class="fullwidht">
+        <tr>
+          <td class="left">
+            <div>
+              Define the sequence $(a_n)_{n \in \mathbb{N}_0}$ explicitly.<br>
+              $a_n$ = <input id="inp_aAtN" type="text" value="if(n == 0, 1, a(n-1) / n)" onkeypress="if((event.which ? event.which : event.keyCode)==13) { cdy.evokeCS('aAtN(n) := (' + this.value + '); computeCoeff();'); }">
+              <button onclick="setTaylor()">Convert to taylor expansion of $g$ around $z_0$</button><br>
+              Do <strong>NOT</strong> use the symbol <span id="sp_delimiter"></span>.<br>
+            </div>
+          </td>
+          <td class="right">
+            <div>
+              $g(z)$ = <input id="inp_g" type="text" value="exp(z - z_0)" onkeypress="if((event.which ? event.which : event.keyCode)==13) { updateVals({g: this.value}); }">
+              Apply zoom <input onclick="cdy.evokeCS('gUseZoom = ' + this.checked);" checked type="checkbox"><br>
+              <strong>Attention!</strong>
+              <table border="1">
+                <thead>
+                <tr>
+                  <td>Avoid</td>
+                  <td>Replace by</td>
+                </tr>
+                </thead>
+                <tbody>
+                <tr>
+                  <td>$\sqrt{z}$</td>
+                  <td>$z^{\frac{1}{2}}$</td>
+                </tr>
+                <tr>
+                  <td>$tan(z)$</td>
+                  <td>$sin(z)/cos(z)$</td>
+                </tr>
+                </tbody>
+              </table>
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td colspan="2">
+            <button id="btn_explanation" onclick="toggleDetails()">Show details</button><br>
+            <div id="explanation">
+              You may define the sequence $(a_n)_{n \in \mathbb{N}_0}$ in the following ways (both might apply):
+              <ul>
+                <li><strong>recursively</strong> using a(n - 1) as $a_{n-1}$ to define $a_n \forall n \geq 1$. Keep in mind to define starting values. Any a(x) where $x <= 0$ will break the representation.<br>
+                  Example: input if (n == 0, k, a(n-1)^2) results in $a_0 = k$ and $a_n = a_{n-1}^2 \forall n \geq 1$.</li>
+                <li><strong>explicitly</strong> using the variable $n$.<br>
+                  Example: input $k^n$ results in $a_n = k^n \forall n \geq 0$.</li>
+              </ul><br>
+              List of available functions:
+              <ul>
+                <li><strong>$fac(n)$</strong> returns $n$ factorial.<br></li>
+                <li><strong>$even(n)$</strong> returns 1 if $n$ is even, 0 otherwise.<br></li>
+                <li><strong>$odd(n)$</strong> returns 1 if $n$ is odd, 0 otherwise.<br></li>
+                <li><strong>$dg(n, x)$</strong> returns the $n^{th}$ derivative of $g$ at $x$.<br></li>
+                <li><strong>$bin(n, k)$</strong> returns the general binomial coefficient for complex arguments.<br></li>
+                <li><strong>$bern(n)$</strong> returns the $n^{th}$ bernoulli number for the integer $0 \leq n \leq 23$, or breaks the representation otherwise.<br></li>
+              </ul><br>
+              Please go through the examples for a better understanding.
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</body>
+
+</html>

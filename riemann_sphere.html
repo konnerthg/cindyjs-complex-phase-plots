@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Cindy JS Example</title>
+    <!--Adapted from http://science-to-touch.com/CJS/CindyJS/complexFunctions/04_Explorer.html -->
+    <!--Riemann sphere: E. Wegert, Visual complex functions. an introduction with phase portraits. Birkhäuser Basel, 2012., p.20f-->
+    <meta charset="UTF-8">
+    <!--<script type="text/javascript" src="https://cindyjs.org/dist/latest/Cindy.js"></script>-->
+    <!--<script type="text/javascript" src="https://cindyjs.org/dist/latest/CindyGL.js"></script>-->
+    <script type="text/javascript" src="./deploy/Cindy.js"></script>
+    <script type="text/javascript" src="./deploy/CindyGL.js"></script>
+
+    <script id="csinit" type="text/x-cindyscript">
+grid1=true;
+grid2=true;
+linear=false;
+bw=false;
+webcam=false;
+camvideo=(;);
+iscam=false;
+grid = 10;
+bw = false;
+linear = false;
+speed = 0;
+sat = 1;
+dragging = false;
+
+showSphere = true;
+showPlane = true;
+showDetails = false;
+
+t0 = seconds();
+
+f(z) := (z - 1)/(z^2 + z + 1);
+
+// World.
+BACKGROUND = (0.4, 0.4, 0.4, 1);
+
+// Plane.
+planeY = 0;
+PLANEA = (0, planeY, 0);
+PLANEB = (1, planeY, 0);
+PLANEC = (0, planeY, 1);
+AB = PLANEB - PLANEA;
+AC = PLANEC - PLANEA;
+PC = (0, -1, 0); // Plane center.
+PLANEN = cross(AB, AC); // Normal vector to the plane.
+PLANE = [PLANEN.x, PLANEN.y, PLANEN.z, -(PLANEA * PLANEN)]; // Plane coordinates.
+// Width on AB (x) and AC (y) direction.
+minW = 0.5;
+maxWx = 15;
+maxWz = 15;
+
+// Sphere.
+M = (0, 0, 0); // Sphere center.
+minR = 0.5;
+maxR = 5;
+minMy = planeY - maxR;
+maxMy = planeY + maxR;
+
+// Plot setup.
+plotBL = (0,0);
+plotUR = (6,6);
+// (0,0) needs to be mapped to center.
+center = plotBL + (plotUR - plotBL) / 2;
+
+// Camera setup. Values chosen to fit a somewhat nice view.
+camC = [-0.0156, 6.6923, -7.4305]; // Camera center.
+camC = camC/|camC| / 3;
+// Principle plane setup.
+dirRight = [1, 0.0035, 0.0011];
+dirUp = [-0.0033, 0.743, 0.6692];
+
+// Principle point.
+getPpOffset() := (
+    -camC / |camC| * 3;
+);
+ppOffset = getPpOffset();
+P = camC + ppOffset;
+
+oldZoom = 1;
+zoom = 10;
+maxZoom = 1;
+minZoom = 50;
+
+// Camera rotation.
+rotationPoint = (0, 0);
+rot = [ [1, 0, 0], [0, 1, 0], [0, 0, 1] ];
+
+/*
+ * UI.
+ */
+
+uiPanelBL = (6.6, 0);
+uiPanelUR = (8.6, 5.8);
+rowHeight = 0.5;
+plotLimitX = 6;
+
+row = 1;
+
+leftPoints = [UIM1, UIR1, UIZ1, UIWX1, coordA, abcdLocation];
+forall(leftPoints, #.x = uiPanelBL.x);
+
+rightPoints = [UIM2, UIR2, UIZ2, UIWX2, coordB];
+forall(rightPoints, #.x = uiPanelUR.x);
+
+pointRows = [
+    [UIM1, UIM, UIM2],
+    [UIR1, UIR, UIR2],
+    [UIZ1, UIZ, UIZ2],
+    [UIWX1, UIWX, UIWX2],
+    [abcdLocation],
+    [coordB]
+];
+
+forall(pointRows, r, forall(r, #.y = uiPanelUR.y - rowHeight * row); row = row + 1);
+
+col = 0;
+colDist = 0.5;
+forall([A,B,C,D], #.xy = abcdLocation.xy + (col*colDist, 0); col = col + 1);
+
+coordA.y = coordB.y - (coordB.x - coordA.x);
+
+pointTextYOffset = rowHeight / 5 * 2;
+textAbovePoint = (0, pointTextYOffset);
+pointTextXLeft = -uiPanelBL.x + plotLimitX + 0.2;
+pointTextXRight = 0.1;
+textHeight = 20;
+ptLeftOffset = (pointTextXLeft, -textHeight / 200);
+ptRightOffset = (pointTextXRight, -textHeight / 200);
+
+// a..d
+coordAm.xy = coordA.xy;
+coordBm.xy = coordB.xy;
+coordAVal = (-1, -1);
+coordBVal = (1, 1);
+
+draggingAnywhere = false;
+
+/*
+ * Use these values when modifying the range of the variable field.
+ */
+// Ugly way to copy :/
+coordAValOld = (0, 0);
+tmp = coordAVal_1;
+coordAValOld_1 = tmp;
+tmp = coordAVal_2;
+coordAValOld_2 = tmp;
+coordBValOld = (0, 0);
+tmp = coordBVal_1;
+coordBValOld_1 = tmp;
+tmp = coordBVal_2;
+coordBValOld_2 = tmp;
+
+// Set the starting parameters.
+sZoom = 10;
+sR = 1;
+sM = 0;
+sPLANElAB = 2;
+UIZ.x = UIZ1.x + (sZoom - minZoom) / (maxZoom - minZoom) * (UIZ2.x - UIZ1.x);
+UIR.x = UIR1.x + (sR - minR) / (maxR - minR) * (UIR2.x - UIR1.x);
+UIM.x = UIM1.x + (sM - minMy) / (maxMy - minMy) * (UIM2.x - UIM1.x);
+UIWX.x = UIWX1.x + (sPLANElAB - minW) / (maxWx - minW) * (UIWX2.x - UIWX1.x);
+
+</script>
+
+<script id="csmousedown" type="text/x-cindyscript">
+  draggingAnywhere = true;
+  dragging=mouse().x<plotLimitX;
+  if (dragging, (
+      rotationPoint = mouse().xy;
+      PLACEHOLDER.xy = mouse().xy;
+  ), );
+</script>
+<script id="csmouseup" type="text/x-cindyscript">
+  draggingAnywhere = false;
+  dragging=false;
+</script>
+
+<script id="csdraw" type="text/x-cindyscript">
+time = t0-seconds();
+
+// UI.
+x = UIM.x;
+if(x<UIM1.x,x=UIM1.x);
+if(x>UIM2.x,x=UIM2.x);
+UIM.xy=(x,UIM1.y);
+
+x = UIR.x;
+if(x<UIR1.x,x=UIR1.x);
+if(x>UIR2.x,x=UIR2.x);
+UIR.xy=(x,UIR1.y);
+
+x = UIZ.x;
+if(x<UIZ1.x,x=UIZ1.x);
+if(x>UIZ2.x,x=UIZ2.x);
+UIZ.xy=(x,UIZ1.y);
+
+x = UIWX.x;
+if(x<UIWX1.x,x=UIWX1.x);
+if(x>UIWX2.x,x=UIWX2.x);
+UIWX.xy=(x,UIWX1.y);
+
+r = minR + (UIR.x - UIR1.x) / (UIR2.x - UIR1.x) * (maxR - minR);
+M = (M.x, minMy + (UIM.x - UIM1.x) / (UIM2.x - UIM1.x) * (maxMy - minMy), M.z);
+SPHEREINF = M + r * (0, 1, 0); // Point at the top of the sphere.
+zoom = minZoom + (UIZ.x - UIZ1.x) / (UIZ2.x - UIZ1.x) * (maxZoom - minZoom);
+
+PLANElAB = minW + (UIWX.x - UIWX1.x) / (UIWX2.x - UIWX1.x) * (maxWx - minW); // Plane length on AB direction.
+// Maybe we want a non-square plane. For now we don't.
+// PLANElAC = minW + (UIWZ.y - UIWZ2.y) / (UIWZ1.y - UIWZ2.y) * (maxWz - minW); // Plane length on AC direction.
+PLANElAC = PLANElAB;
+
+if (zoom != oldZoom,
+    camC = camC / oldZoom * zoom;
+    P = camC + ppOffset;
+    oldZoom = zoom
+);
+
+drawtext(UIM1.xy+textAbovePoint,"Sphere Center (Y coordinate): " + M.y,size->textHeight);
+drawtext(UIM1.xy+ptLeftOffset,minMy,size->textHeight);
+drawtext(UIM2.xy+ptRightOffset,maxMy, size->textHeight);
+drawtext(UIR1+textAbovePoint,"Sphere Radius: " + r);
+drawtext(UIR1.xy+ptLeftOffset,minR);
+drawtext(UIR2.xy+ptRightOffset,maxR);
+drawtext(UIWX1.xy+textAbovePoint,"Plane Dimensions: " + PLANElAC + " x " + PLANElAB);
+drawtext(UIWX1.xy+ptLeftOffset,minW);
+drawtext(UIWX2.xy+ptRightOffset,maxWx);
+drawtext(UIZ1.xy+textAbovePoint,"Zoom: " + zoom);
+drawtext(UIZ1.xy+ptLeftOffset,minZoom);
+drawtext(UIZ2.xy+ptRightOffset,maxZoom);
+
+/*
+ * Modify the range of the variable panel.
+ */
+if (!draggingAnywhere, (
+    coordAm.xy = coordA.xy;
+    coordBm.xy = coordB.xy;
+    tmp = coordAVal_1;
+    coordAValOld_1 = tmp;
+    tmp = coordAVal_2;
+    coordAValOld_2 = tmp;
+    tmp = coordBVal_1;
+    coordBValOld_1 = tmp;
+    tmp = coordBVal_2;
+    coordBValOld_2 = tmp;
+    ), (
+    // Prevent A and B values to be equal, because then dragging makes no more sense.
+    safetyDist = 0.01;
+    if (coordBm.x < coordA.x, coordBm.x = coordA.x + safetyDist);
+    if (coordBm.y < coordA.y, coordBm.y = coordA.y + safetyDist);
+    if (coordAm.x > coordB.x, coordAm.x = coordB.x - safetyDist);
+    if (coordAm.y > coordB.y, coordAm.y = coordB.y - safetyDist);
+    coordAVal_1 = coordBValOld_1 - (coordBValOld_1 - coordAValOld_1) * (coordB.x - coordAm.x) / (coordB.x - coordA.x);
+    coordAVal_2 = coordBValOld_2 - (coordBValOld_2 - coordAValOld_2) * (coordB.y - coordAm.y) / (coordB.y - coordA.y);
+    coordBVal_1 = coordAValOld_1 + (coordBValOld_1 - coordAValOld_1) * (coordBm.x - coordA.x) / (coordB.x - coordA.x);
+    coordBVal_2 = coordAValOld_2 + (coordBValOld_2 - coordAValOld_2) * (coordBm.y - coordA.y) / (coordB.y - coordA.y);
+) );
+
+/*
+ * Set the position of a variable point to fit a certain variable value.
+ */
+setVar(P, val) := (
+  if (re(val) < coordAVal.x, coordAVal_1 = re(val));
+  if (re(val) > coordBVal.x, coordBVal_1 = re(val));
+  if (im(val) < coordAVal.y, coordAVal_2 = re(val));
+  if (im(val) > coordBVal.y, coordBVal_2 = re(val));
+  P.x = (re(val) - coordAVal.x) / (coordBVal.x - coordAVal.x) * (coordB.x - coordA.x) + coordA.x;
+  P.y = (im(val) - coordAVal.y) / (coordBVal.y - coordAVal.y) * (coordB.y - coordA.y) + coordA.y;
+);
+
+/*
+ * Compute variable values from points A, B, C and D.
+ */
+getTrafoCoords(P) := (
+    if (P.x < coordA.x % P.y < coordA.y % P.x > coordB.x % P.y > coordB.y, 0, complex(((P.x - coordA.x) / (coordB.x - coordA.x) * (coordBVal.x - coordAVal.x) + coordAVal.x, (P.y - coordA.y) / (coordB.y - coordA.y) * (coordBVal.y - coordAVal.y) + coordAVal.y)));
+);
+
+a = getTrafoCoords(A);
+b = getTrafoCoords(B);
+c = getTrafoCoords(C);
+d = getTrafoCoords(D);
+
+
+/*
+ * Show/hide details.
+ */
+detailsPoints = [A,B,C,D,coordA,coordB,coordAm,coordBm];
+pinned = [false,false,false,false,true,true,false,false];
+
+if (showDetails,
+    repeat(length(detailsPoints),
+        detailsPoints_#.pinned = pinned_#;
+        detailsPoints_#.alpha = 1;
+    );
+    textOffset = (0.03, 0.03);
+    drawtext((coordA.x, coordB.y) + textAbovePoint,"Move these points to alter a, b, c, d.");
+    drawtext(A + textOffset, "A");
+    drawtext(B + textOffset, "B");
+    drawtext(C + textOffset, "C");
+    drawtext(D + textOffset, "D");
+    drawtext(coordA + textOffset, "" + coordAVal);
+    drawtext(coordB + textOffset, "" + coordBVal);
+    drawpoly([(coordA.x, coordB.y), coordA, (coordB.x, coordA.y), coordB], color->(0, 0, 0));
+    variablePanel = coordB + (pointTextXRight, -pointTextYOffset);
+    row = 0;
+    drawtext(variablePanel - row * (0, rowHeight), "a = " + a);
+    row = row + 1;
+    drawtext(variablePanel - row * (0, rowHeight), "b = " + b);
+    row = row + 1;
+    drawtext(variablePanel - row * (0, rowHeight), "c = " + c);
+    row = row + 1;
+    drawtext(variablePanel - row * (0, rowHeight), "d = " + d);
+    ,
+    repeat(length(detailsPoints),
+        detailsPoints_#.pinned = true;
+        detailsPoints_#.alpha = 0;
+    );
+);
+
+/*
+ * Cross product.
+ */
+cross(A, B) := (
+  (det([ [A.y, B.y], [A.z, B.z] ]), -det([ [A.x, B.x], [A.z, B.z] ]), det([ [A.x, B.x], [A.y, B.y] ]));
+);
+
+// Length of projection of V onto P.
+projLen(V, P) := (
+  regional(l);
+  if (|P| == 0, l = 0, l = V * P / |P|);
+  l;
+);
+
+/*
+ * Get t for which C + t * D lies on the sphere.
+ */
+getSphereIntersection(D) := (
+  regional(a, b, c, delta, ts, t);
+  a = D.x^2 + D.y^2 + D.z^2;
+  b = 2 * (D.x*(camC.x - M.x) + D.y*(camC.y - M.y) + D.z*(camC.z - M.z));
+  c = (camC.x - M.x)^2 + (camC.y - M.y)^2 + (camC.z - M.z)^2 - r^2;
+  delta = b^2 - 4*a*c;
+  if(re(delta) < 0, t = -1,
+    delta = sqrt(delta);
+    ts = [re(-b - delta) / (2 * a), re(-b + delta) / (2 * a)];
+    if ( ts_1 >= 0 & ts_2 >= 0, (
+      if (ts_1 < ts_2, t = ts_1, t = ts_2);
+    ), (
+      if (ts_1 > 0, t = ts_1, (
+        if (ts_2 > 0, t = ts_2, t = -1);
+      ) );
+    ) );
+  );
+  t;
+);
+
+getSphereColor(t, D) := (
+  regional(I, R, cos, col, Ds, ts);
+  I = camC + t * D;
+  R = I - M;
+  cos = |(R * D) / (|R| * |D|)|;
+  if ( |I - SPHEREINF| <= 0.03, (
+    col = (1, 1, 1, 1);
+  ), (
+    Ds = I - SPHEREINF;
+    ts = getPlaneIntersection(SPHEREINF, Ds, false);
+    col = computeComplexColor(SPHEREINF + ts * Ds)
+  ) );
+  (col.x * cos, col.y * cos, col.z * cos, 1);
+);
+
+/*
+ * Get t for which C + t * D lies on the plane.
+ */
+getPlaneIntersection(FROM, D, limit) := (
+    regional(a ,b, c, d, t, x, y, dAB, dAC, I);
+    a = PLANE_1;
+    b = PLANE_2;
+    c = PLANE_3;
+    d = PLANE_4;
+    x = a * D.x + b * D.y + c * D.z;
+    y = a * FROM.x + b * FROM.y + c * FROM.z + d;
+        if(x == 0,
+            // D is parallel to the plane. Edge case. Return -1 for simplification.
+            t = -1;
+            , (
+                t = -y / x;
+                if(t < 0 % limit != true, ,
+                    I = FROM + t * D;
+                    dAB = projLen(I - PC, AB);
+                    dAC = projLen(I - PC, AC);
+                    if (|dAB| > PLANElAB % |dAC| > PLANElAC, t = -1, );
+                );
+            )
+        );
+    t;
+);
+
+getPlaneColor(t, D) := (
+  regional(col, cos);
+  cos = |(PLANEN * D) / (|PLANEN| * |D|)|;
+  col = computeComplexColor(camC + t * D);
+  (col.x * cos, col.y * cos, col.z * cos, 1);
+);
+
+/*
+ * Based on: S. Kranich, "Continuity in dynamic geometry: An algorithmic approach," PhD thesis, München, Technische Universität München, Diss., 2016, 2016. p. 90.
+ */
+computeComplexColor (I) := ( //what color should be given to a complex number z?
+  regional(n, grey1, grey2, z, IPROJ, I2D, col3);
+
+  I2D = I - PC + PLANEA;
+  IPROJ = (projLen(I2D, AB), projLen(I2D, AC));
+  z = f(complex (IPROJ));
+
+  n = 12;
+  z = log(z)/2/pi;
+
+  zfract = n*z - floor(n*z); //value of n*z in C mod Z[i]
+
+  grey1 = im(zfract);
+  grey2 = re(zfract);
+
+  col3 = hue(im(z))*(.7+.3*re(sqrt(grey1*grey2)));
+
+  (col3.x, col3.y, col3.z, 1);
+);
+
+/*
+ * Get all intersections and find the closest.
+ * Source: A. S. Glassner, An introduction to ray tracing. Elsevier, 1989.
+ */
+getColor(D) := (
+  regional(col1, t1, col2, t2, col);
+  t1 = if(showPlane, getPlaneIntersection(camC, D, true), -1);
+  t2 = if(showSphere, getSphereIntersection(D), -1);
+  if (t1 < 0,
+    if (t2 < 0, col = BACKGROUND,
+      col2 = getSphereColor(t2, D);
+      col = col2
+    ),
+    if (t2 < 0,
+      col1 = getPlaneColor(t1, D);
+      col = col1,
+      if (t1 < t2,
+        col1 = getPlaneColor(t1, D);
+        col = col1,
+        if (t1 == t2,
+          col1 = getPlaneColor(t1, D);
+          col2 = getSphereColor(t2, D);
+          col = col1 + col2,
+          col2 = getSphereColor(t2, D);
+          col = col2
+        )
+      )
+    )
+  );
+  col;
+);
+
+screenToWorld(A) := (
+    A = A - center;
+    P/|P| + A.x * dirRight + A.y * dirUp;
+);
+
+/*
+ * Camera rotation around world origin on drag. I can't believe this actually works.
+ * http://inside.mines.edu/fs_home/gmurray/ArbitraryAxisRotation/
+ */
+changeCameraRotation() := (
+    regional(P1, P2, cp, axis, cos, sin, u, v, w);
+    P1 = screenToWorld(mouse().xy);
+    P2 = screenToWorld(rotationPoint);
+    // Rotation axis.
+    cp = cross(P1, P2);
+    cp.x = re(cp.x);
+    cp.y = re(cp.y);
+    cp.z = re(cp.z);
+    if (|cp| != 0, (
+        axis = cp / (|cp|);
+        cos = (P1 * P2) / (|P1| * |P2|);
+        sin = sqrt(1 - cos ^ 2);
+        u = axis.x;
+        v = axis.y;
+        w = axis.z;
+        rot = [
+            [u^2 + (1 - u^2) * cos, u * v * (1 - cos) - w * sin, u * w * (1 - cos) + v * sin],
+            [u * v * (1 - cos) + w * sin, v^2 + (1 - v^2) * cos, v * w * (1 - cos) - u * sin],
+            [u * w * (1 - cos) - v * sin, v * w * (1 - cos) + u * sin, w^2 + (1 - w^2) * cos]
+        ];
+        camC = rot * camC;
+        ppOffset = getPpOffset();
+        P = camC + ppOffset;
+        dirRight = rot * dirRight;
+        dirUp = rot * dirUp;
+    ) );
+    rotationPoint = mouse().xy;
+);
+
+rotateCamera() := (
+    if(dragging, changeCameraRotation(););
+);
+
+makePlot() := (
+  colorplot(
+    regional(D, coords);
+    coords = (#.x, #.y) - center;
+    D = P + coords.x * dirRight + coords.y * dirUp - camC;
+    D = D/|D|;
+    getColor(D),
+    plotBL, plotUR
+  );
+);
+
+run() := (
+  rotateCamera();
+  makePlot();
+);
+
+run();
+
+    </script>
+    <script type="text/javascript">
+
+        var cdy = CindyJS ({
+            ports: [{
+                id: "CSCanvas",
+                width: 1050,
+                height: 600,
+                transform: [{visibleRect: [0, 0, 10.5, 6]}]
+            }],
+            scripts: "cs*",
+            geometry: [
+//                    Most values will be changed on init.
+                {name:"PLACEHOLDER", type:"Free", pos:[1,0],color:[0,0,0,0],pinned:false,size:0,alpha:0},
+
+                {name:"abcdLocation", type:"Free", pos:[2.7,0.6],color:[1,1,1],pinned:true,size:0,alpha:0},
+                {name:"A", type:"Free", pos:[2.7,0.6],color:[1,0,0],pinned:false,size:4},
+                {name:"B", type:"Free", pos:[2.9,0.6],color:[0,1,0],pinned:false,size:4},
+                {name:"C", type:"Free", pos:[3.1,0.6],color:[0,0,1],pinned:false,size:4},
+                {name:"D", type:"Free", pos:[3.3,0.6],color:[0,1,1],pinned:false,size:4},
+
+                {name:"coordA", type:"Free", pos:[2.7,-0.4],color:[0,0,0],pinned:true,size:4},
+                {name:"coordB", type:"Free", pos:[3.5,0.4],color:[0,0,0],pinned:true,size:4},
+                {name:"coordAm", type:"Free", pos:[2.7,-0.4],color:[1,0,0],pinned:false,size:2},
+                {name:"coordBm", type:"Free", pos:[3.5,0.4],color:[1,0,0],pinned:false,size:2},
+
+                {name:"UIM1", type:"Free", pos:[6.2,5.8],color:[0,0,0],pinned:true,size:4},
+                {name:"UIM2", type:"Free", pos:[8.8,5.8],color:[0,0,0],pinned:true,size:4},
+                {name:"lUIM", type:"Segment", args:["UIM1","UIM2"],color:[0,0,0],pinned:false,size:2},
+                {name:"UIM", type:"Free", pos:[7.6, 5.8],color:[1,0,0],pinned:false,size:4},
+
+                {name:"UIR1", type:"Free", pos:[6.2,5.4],color:[0,0,0],pinned:true,size:4},
+                {name:"UIR2", type:"Free", pos:[8,5.4],color:[0,0,0],pinned:true,size:4},
+                {name:"lUIR", type:"Segment", args:["UIR1","UIR2"],color:[0,0,0],pinned:false,size:2},
+                {name:"UIR", type:"Free", pos:[7.6, 5.4],color:[1,0,0],pinned:false,size:4},
+
+                {name:"UIWX1", type:"Free", pos:[6.2,5],color:[0,0,0],pinned:true,size:4},
+                {name:"UIWX2", type:"Free", pos:[8.8,5],color:[0,0,0],pinned:true,size:4},
+                {name:"lUIWX", type:"Segment", args:["UIWX1","UIWX2"],color:[0,0,0],pinned:false,size:2},
+                {name:"UIWX", type:"Free", pos:[7.3,5],color:[1,0,0],pinned:false,size:4},
+
+                {name:"UIZ1", type:"Free", pos:[6.2,4.6],color:[0,0,0],pinned:true,size:4},
+                {name:"UIZ2", type:"Free", pos:[8.8,4.6],color:[0,0,0],pinned:true,size:4},
+                {name:"lUIZ", type:"Segment", args:["UIZ1","UIZ2"],color:[0,0,0],pinned:false,size:2},
+                {name:"UIZ", type:"Free", pos:[7,4.6],color:[1,0,0],pinned:false,size:4},
+            ],
+            animation: {autoplay: true},
+            images: {Rot: "uiImages/Rot.png", Sat: "uiImages/SSat.png", Grid: "uiImages/Grid.png"},
+            use: ["CindyGL"]
+        });
+
+        var onChange = function (sel) {
+            document.getElementById('inp').value = sel.value;
+            cdy.evokeCS('f(z) := (' + sel.value + ');');
+            var selected = sel.options[sel.selectedIndex];
+            var f = selected.getAttribute('data-run');
+            if(f) {cdy.evokeCS(f.toString())};
+        };
+    </script>
+</head>
+
+<body style="font-family:Arial;">
+
+<div>
+
+    <input id="ch1" onclick="cdy.evokeCS('showSphere = ' + this.checked);" checked type="checkbox" >Show Sphere&nbsp;&nbsp;&nbsp;
+    <input id="ch2" onclick="cdy.evokeCS('showPlane = ' + this.checked);" checked type="checkbox" >Show Plane&nbsp;&nbsp;&nbsp;
+    f(z) = <input type="text" id="inp" value="(z - 1)/(z^2 + z + 1)"  onkeypress="if((event.which ? event.which : event.keyCode)==13) { cdy.evokeCS('f(z) := (' + this.value + ');'); }" size="25" style="font-size:18px">
+    <select id="sel" onchange="onChange(this)">
+        <option value="(z - 1)/(z^2 + z + 1)">Standard Example</option>
+        <!--The following examples are adapted from: https://cindyjs.org/gallery/main/ComplexExplorer/-->
+        <option>z^5-a^5</option>
+        <option>(1-z + a)*(1+z - a)</option>
+        <option>(z-a)/(z-b)</option>
+        <option>z^(1+i)</option>
+        <option>z^a</option>
+        <option data-run="setVar(A, 0.5)" >(sin(3*(z-a))/sin(3*(z-b)))^(1+i)</option>
+        <option data-run="setVar(A, 2)" value="repeat(7, z = z*z + a)">Julia set</option>
+        <option data-run="setVar(A, 1.8)" value="v = 0; repeat(11, v = v*v + z - a; v = v/abs(v)*min(abs(v),10))">Mandelbrot set</option>
+        <option data-run="setVar(A, 0.9)" value="repeat(5, z = z - (z^3-a)/(3*z^2))">Newton</option>
+    </select>
+    <input id="ch3" onclick="cdy.evokeCS('showDetails = ' + this.checked);" type="checkbox" >Show Variable (a, b, c, d) Controls&nbsp;&nbsp;&nbsp;<br>
+</div>
+
+<div id="CSCanvas" style="border:2px solid black"></div>
+
+</body>
+
+</html>
